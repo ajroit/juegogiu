@@ -56,22 +56,28 @@
 
     <script>
         const canvas = document.getElementById('gameCanvas');
-    const ctx = canvas.getContext('2d');
-    const startScreen = document.getElementById('startScreen');
+        const ctx = canvas.getContext('2d');
+        const startScreen = document.getElementById('startScreen');
 
-    // Ajustar tamaño del canvas
-    canvas.width = 800;
-    canvas.height = 400;
+        // Ajustar tamaño del canvas
+        canvas.width = 800;
+        canvas.height = 400;
 
-    // Cargar la imagen de fondo
-    const backgroundImage = new Image();
-    backgroundImage.src = 'fondo.jpeg'; // Asegúrate de que la ruta sea correcta
+        // Cargar la imagen de fondo
+        const backgroundImage = new Image();
+        backgroundImage.src = 'fondo.jpeg';
 
-    backgroundImage.onload = () => {
-        // Podemos empezar el juego o realizar alguna acción después de que la imagen cargue
-        console.log('Fondo cargado');
-    };
+        backgroundImage.onload = () => {
+            console.log('Fondo cargado');
+        };
 
+        // Cargar la imagen de la escuela
+        const schoolImage = new Image();
+        schoolImage.src = 'instituto.png';  // Reemplaza con la URL de tu imagen de la escuela
+        let schoolX = canvas.width; // Inicializar fuera de la pantalla
+        let schoolVisible = false;  // Inicialmente no visible
+        let schoolWidth = 200; // Ancho de la escuela
+        let schoolHeight = 200; // Alto de la escuela
 
         // Variables del juego
         let gameStarted = false;
@@ -80,18 +86,54 @@
         let gameSpeed = 5;
         let gravity = 0.5;
         let lastObstacleTime = 0;
-        let minObstacleGap = 60; // Mínimo de frames entre obstáculos
-        
+        let minObstacleGap = 60;
+        let gameTime = 0; // Tiempo transcurrido en el juego (en frames)
+
+        // Sprites del jugador
+        const playerSprites = {
+            run: {
+                image: new Image(),
+                frameCount: 6,
+                framesPerRow: 2,
+                spriteWidth: 2048 / 2,
+                spriteHeight: 3072 / 3
+            },
+            jump: {
+                image: new Image(),
+                frameCount: 4,
+                framesPerRow: 2,
+                spriteWidth: 2048 / 2,
+                spriteHeight: 2048 / 2
+            }
+        };
+
+        // Cargar los sprites
+        playerSprites.run.image.src = "sprites_giu_corriendo.png"; // Sprite de correr
+        playerSprites.jump.image.src = "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/sprites_giu_saltando%20%281%29-FtwmIu01J4LuG0f3BvbhIXXcXLvMyH.png"; // Sprite de salto
+
         // Jugadora
         const player = {
             x: 50,
             y: 300,
-            width: 40,
-            height: 60,
+            width: 80,
+            height: 80,
             dy: 0,
             jumping: false,
-            ducking: false
+            ducking: false,
+            frameIndex: 0,
+            tickCount: 0,
+            ticksPerFrame: 8,
+            currentAnimation: 'run', // 'run' o 'jump'
+            jumpPhase: 0, // 0: inicio, 1: subiendo, 2: punto alto, 3: bajando
         };
+
+        //  Globos (Obstáculos)
+        const balloonImage = new Image();
+        balloonImage.src = "balloons.png"; // Asegúrate de que este sea el path correcto a tu imagen
+        const numBalloonsPerRow = 3;
+        const numBalloonsPerCol = 3;
+        const balloonSpriteWidth = 1024 / numBalloonsPerRow;  // Ancho de cada globo en la imagen
+        const balloonSpriteHeight = 1024 / numBalloonsPerCol; // Alto de cada globo en la imagen
 
         // Obstáculos y fases
         let obstacles = [];
@@ -103,27 +145,26 @@
             { name: 'Salón', difficulty: 2.5, color: '#FFD700' }
         ];
 
-        // Definición de obstáculos por fase (mezcla de altos y bajos)
+        // Definición de obstáculos por fase
         const phaseObstacles = {
-            0: [ // Peluquería
-                { type: 'secador', width: 40, height: 30, y: 330, high: false }, // Secador en el suelo (saltar)
-                { type: 'tijeras', width: 20, height: 40, y: 260, high: true }    // Tijeras flotando (agacharse)
+            0: [
+                { type: 'globo', width: 40, height: 40, y: 220, high: true, balloonIndex: 0 }, //globo rojo
+                { type: 'globo', width: 40, height: 40, y: 330, high: false, balloonIndex: 1 } //globo rosa
             ],
-            1: [ // Vestuario
-                { type: 'percha', width: 30, height: 50, y: 280, high: true },    // Percha con vestido (agacharse)
-                { type: 'zapatos', width: 40, height: 20, y: 340, high: false }   // Zapatos en el suelo (saltar)
+            1: [
+                { type: 'globo', width: 40, height: 40, y: 220, high: true, balloonIndex: 2 }, //globo morado
+                { type: 'globo', width: 40, height: 40, y: 330, high: false, balloonIndex: 3 } //globo celeste
             ],
-            2: [ // Maquillaje
-                { type: 'pincel', width: 20, height: 60, y: 240, high: true },    // Pincel grande (agacharse)
-                { type: 'polvo', width: 30, height: 30, y: 330, high: false }     // Bote de polvo (saltar)
+            2: [
+                { type: 'globo', width: 40, height: 40, y: 220, high: true, balloonIndex: 4 }, //globo amarillo
+                { type: 'globo', width: 40, height: 40, y: 330, high: false, balloonIndex: 5 } //globo rojo
             ],
-            3: [ // Salón
-                { type: 'mesa', width: 60, height: 40, y: 320, high: false },     // Mesa de banquete (saltar)
-                { type: 'globo', width: 30, height: 30, y: 220, high: true }      // Globo flotante (agacharse)
+            3: [
+                { type: 'globo', width: 40, height: 40, y: 220, high: true, balloonIndex: 6 }, //globo morado
+                { type: 'globo', width: 40, height: 40, y: 330, high: false, balloonIndex: 7 } //globo celeste
             ]
         };
 
-        // Colores para cada tipo de obstáculo
         const obstacleColors = {
             'secador': '#FF4500',
             'tijeras': '#4682B4',
@@ -132,7 +173,7 @@
             'pincel': '#FFA500',
             'polvo': '#DDA0DD',
             'mesa': '#8B4513',
-            'globo': '#FF0000'
+            'globo': '#FF0000' // El color ya no importa, usaremos el sprite.
         };
 
         let phaseDistance = 0;
@@ -146,11 +187,14 @@
                 } else if (!player.jumping && !player.ducking) {
                     player.jumping = true;
                     player.dy = -12;
+                    player.currentAnimation = 'jump';
+                    player.frameIndex = 0; // Reiniciar animación de salto
+                    player.jumpPhase = 0;
                 }
             }
             if (e.code === 'ArrowDown' && !player.jumping) {
                 player.ducking = true;
-                player.height = 30;
+                player.height = 40;
                 player.y = 330;
             }
         });
@@ -158,7 +202,7 @@
         document.addEventListener('keyup', (e) => {
             if (e.code === 'ArrowDown') {
                 player.ducking = false;
-                player.height = 60;
+                player.height = 80;
                 player.y = 300;
             }
         });
@@ -166,39 +210,99 @@
         function startGame() {
             gameStarted = true;
             startScreen.style.display = 'none';
+            gameTime = 0; // Reiniciar el tiempo
+            schoolVisible = false; // Asegurarse que no se muestre al inicio
             gameLoop();
         }
 
         function spawnObstacle() {
             if (phase >= phases.length) return;
-            
+
             const availableObstacles = phaseObstacles[phase];
             const obstacleTemplate = availableObstacles[Math.floor(Math.random() * availableObstacles.length)];
-            
+
             obstacles.push({
                 x: 800,
                 y: obstacleTemplate.y,
                 width: obstacleTemplate.width,
                 height: obstacleTemplate.height,
                 type: obstacleTemplate.type,
-                high: obstacleTemplate.high
+                high: obstacleTemplate.high,
+                balloonIndex: obstacleTemplate.balloonIndex // Indice del globo dentro del sprite.
             });
+        }
+
+        function showSchool() {
+            schoolX = canvas.width; // Restablecer la posición al borde derecho
+            schoolVisible = true;
+        }
+
+        function updateJumpAnimation() {
+            const jumpHeight = player.y;
+            const initialY = 300;
+            const maxJumpHeight = initialY - 100;
+
+            // Actualizar fase de salto basado en la altura
+            if (jumpHeight > initialY - 20) {
+                player.jumpPhase = 0; // Inicio del salto
+            } else if (player.dy < 0) {
+                player.jumpPhase = 1; // Subiendo
+            } else if (Math.abs(player.dy) < 2) {
+                player.jumpPhase = 2; // Punto más alto
+            } else {
+                player.jumpPhase = 3; // Bajando
+            }
+
+            // Asignar el frame correspondiente a la fase del salto
+            player.frameIndex = player.jumpPhase;
         }
 
         function update() {
             if (!gameStarted) return;
 
-            // Actualizar puntuación
+            gameTime++; // Incrementar el tiempo en cada frame
+
             score++;
             phaseDistance++;
             document.getElementById('score').textContent = score;
-            
-            // Cambiar de fase
+
             if (phaseDistance >= nextPhaseAt && phase < phases.length) {
                 gameSpeed *= phases[phase].difficulty;
                 phase++;
                 phaseDistance = 0;
                 nextPhaseAt *= 1.5;
+            }
+
+            // Mostrar la escuela cada 15 segundos (900 frames) y luego cada 50 segundos (3000 frames)
+            const showSchoolInitialTime = 15 * 60; // 15 segundos en frames (60 frames por segundo)
+            const showSchoolRepeatTime = 50 * 60; // 50 segundos en frames (60 frames por segundo)
+
+            if (gameTime === showSchoolInitialTime || (gameTime > showSchoolInitialTime && (gameTime - showSchoolInitialTime) % showSchoolRepeatTime === 0)) {
+                showSchool();
+            }
+
+            // Actualizar la posición de la escuela
+            if (schoolVisible) {
+                schoolX -= gameSpeed * 0.5;
+
+                // Ocultar la escuela cuando la parte izquierda sale de la pantalla
+                if (schoolX < -schoolWidth) {
+                    schoolVisible = false;
+                }
+            }
+
+            // Actualizar animación
+            player.tickCount++;
+            if (player.tickCount > player.ticksPerFrame) {
+                player.tickCount = 0;
+                if (!player.jumping) {
+                    // Animación de correr
+                    player.frameIndex = (player.frameIndex + 1) % playerSprites.run.frameCount;
+                    player.currentAnimation = 'run';
+                } else {
+                    // Actualizar animación de salto
+                    updateJumpAnimation();
+                }
             }
 
             // Física del jugador
@@ -209,22 +313,23 @@
                     player.y = 300;
                     player.jumping = false;
                     player.dy = 0;
+                    player.currentAnimation = 'run';
+                    player.frameIndex = 0;
                 }
             }
 
-            // Generar obstáculos con espaciado
+            // Generar obstáculos
             lastObstacleTime++;
             if (Math.random() < 0.015 * (phase + 1) && lastObstacleTime > minObstacleGap) {
                 spawnObstacle();
                 lastObstacleTime = 0;
             }
 
-            // Mover obstáculos
+            // Mover y verificar colisiones
             obstacles = obstacles.filter(obs => obs.x > -obs.width);
             obstacles.forEach(obs => {
                 obs.x -= gameSpeed;
 
-                // Colisión
                 if (player.x < obs.x + obs.width &&
                     player.x + player.width > obs.x &&
                     player.y < obs.y + obs.height &&
@@ -234,29 +339,60 @@
             });
         }
 
-            function draw() {
-        // Dibujar el fondo
-        ctx.drawImage(backgroundImage, 0, 0, canvas.width, canvas.height);
+        function draw() {
+            // Fondo
+            ctx.drawImage(backgroundImage, 0, 0, canvas.width, canvas.height);
 
-        // Suelo (puedes mantenerlo o modificarlo según tu gusto)
-        ctx.fillStyle = '#666';
-        ctx.fillRect(0, 360, canvas.width, 40);
+            // Dibujar la escuela antes que el jugador
+            if (schoolVisible) {
+                ctx.drawImage(schoolImage, schoolX, 170, schoolWidth, schoolHeight); // Aumentar el valor de y
+            }
 
-        // Jugadora (rectángulo rosa - aquí eventualmente dibujarás el sprite)
-        ctx.fillStyle = '#FF69B4';
-        ctx.fillRect(player.x, player.y, player.width, player.height);
+            // Suelo
+            ctx.fillStyle = '#666';
+            ctx.fillRect(0, 360, canvas.width, 40);
 
-        // Obstáculos (rectángulos de color - aquí eventualmente dibujarás los sprites)
-        obstacles.forEach(obs => {
-            ctx.fillStyle = obstacleColors?.[obs.type] || '#000';
-            ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
-        });
+            // Obtener el sprite sheet actual
+            const currentSprite = playerSprites[player.currentAnimation];
 
-        // Texto de fase (si decides mantenerlo)
-        ctx.fillStyle = '#000';
-        ctx.font = '20px Arial';
-        ctx.fillText(`Fase: ${phases?.[Math.min(phase, phases.length - 1)]?.name || 'Desconocida'}`, 10, 30);
-    }
+            // Calcular la posición del frame en el sprite sheet
+            const col = player.frameIndex % currentSprite.framesPerRow;
+            const row = Math.floor(player.frameIndex / currentSprite.framesPerRow);
+
+            const frameX = col * currentSprite.spriteWidth;
+            const frameY = row * currentSprite.spriteHeight;
+
+            // Dibujar el sprite del jugador
+            ctx.drawImage(
+                currentSprite.image,
+                frameX, frameY,
+                currentSprite.spriteWidth, currentSprite.spriteHeight,
+                player.x, player.y,
+                player.width, player.height
+            );
+
+            // Obstáculos (Globos)
+            obstacles.forEach(obs => {
+                const balloonCol = obs.balloonIndex % numBalloonsPerRow;
+                const balloonRow = Math.floor(obs.balloonIndex / numBalloonsPerRow);
+                const sourceX = balloonCol * balloonSpriteWidth;
+                const sourceY = balloonRow * balloonSpriteHeight;
+
+                ctx.drawImage(
+                    balloonImage,
+                    sourceX, sourceY,
+                    balloonSpriteWidth, balloonSpriteHeight,
+                    obs.x, obs.y,
+                    obs.width, obs.height
+                );
+            });
+
+
+            // Texto de fase
+            ctx.fillStyle = '#000';
+            ctx.font = '20px Arial';
+            ctx.fillText(`Fase: ${phases[Math.min(phase, phases.length - 1)].name}`, 10, 30);
+        }
 
         function endGame() {
             gameStarted = false;
@@ -279,6 +415,11 @@
             phaseDistance = 0;
             nextPhaseAt = 1000;
             lastObstacleTime = 0;
+            player.frameIndex = 0;
+            player.currentAnimation = 'run';
+            player.jumping = false;
+            player.y = 300;
+            schoolVisible = false;
         }
 
         function gameLoop() {
