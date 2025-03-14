@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Quinceañera Runner</title>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: #f0f0f0;
+        }
+        #gameContainer {
+            position: relative;
+            width: 800px;
+            height: 400px;
+        }
+        #gameCanvas {
+            width: 100%;
+            height: 100%;
+            background: #87CEEB;
+        }
+        #startScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-family: Arial, sans-serif;
+        }
+        #scoreBoard {
+            margin-top: 10px;
+            font-family: Arial, sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        <div id="startScreen">
+            <h1>Quinceañera Runner</h1>
+            <p>Ayuda a Sofía a llegar a su fiesta de 15</p>
+            <p>SPACE para saltar - DOWN para agacharse</p>
+            <p>Presiona SPACE para comenzar</p>
+        </div>
+    </div>
+    <div id="scoreBoard">
+        Puntuación: <span id="score">0</span> | Mejor: <span id="highScore">0</span>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const startScreen = document.getElementById('startScreen');
+
+    // Ajustar tamaño del canvas
+    canvas.width = 800;
+    canvas.height = 400;
+
+    // Cargar la imagen de fondo
+    const backgroundImage = new Image();
+    backgroundImage.src = 'fondo.jpeg'; // Asegúrate de que la ruta sea correcta
+
+    backgroundImage.onload = () => {
+        // Podemos empezar el juego o realizar alguna acción después de que la imagen cargue
+        console.log('Fondo cargado');
+    };
+
+
+        // Variables del juego
+        let gameStarted = false;
+        let score = 0;
+        let highScore = localStorage.getItem('highScore') || 0;
+        let gameSpeed = 5;
+        let gravity = 0.5;
+        let lastObstacleTime = 0;
+        let minObstacleGap = 60; // Mínimo de frames entre obstáculos
+        
+        // Jugadora
+        const player = {
+            x: 50,
+            y: 300,
+            width: 40,
+            height: 60,
+            dy: 0,
+            jumping: false,
+            ducking: false
+        };
+
+        // Obstáculos y fases
+        let obstacles = [];
+        let phase = 0;
+        const phases = [
+            { name: 'Peluquería', difficulty: 1, color: '#FFB6C1' },
+            { name: 'Vestuario', difficulty: 1.5, color: '#98FB98' },
+            { name: 'Maquillaje', difficulty: 2, color: '#DDA0DD' },
+            { name: 'Salón', difficulty: 2.5, color: '#FFD700' }
+        ];
+
+        // Definición de obstáculos por fase (mezcla de altos y bajos)
+        const phaseObstacles = {
+            0: [ // Peluquería
+                { type: 'secador', width: 40, height: 30, y: 330, high: false }, // Secador en el suelo (saltar)
+                { type: 'tijeras', width: 20, height: 40, y: 260, high: true }    // Tijeras flotando (agacharse)
+            ],
+            1: [ // Vestuario
+                { type: 'percha', width: 30, height: 50, y: 280, high: true },    // Percha con vestido (agacharse)
+                { type: 'zapatos', width: 40, height: 20, y: 340, high: false }   // Zapatos en el suelo (saltar)
+            ],
+            2: [ // Maquillaje
+                { type: 'pincel', width: 20, height: 60, y: 240, high: true },    // Pincel grande (agacharse)
+                { type: 'polvo', width: 30, height: 30, y: 330, high: false }     // Bote de polvo (saltar)
+            ],
+            3: [ // Salón
+                { type: 'mesa', width: 60, height: 40, y: 320, high: false },     // Mesa de banquete (saltar)
+                { type: 'globo', width: 30, height: 30, y: 220, high: true }      // Globo flotante (agacharse)
+            ]
+        };
+
+        // Colores para cada tipo de obstáculo
+        const obstacleColors = {
+            'secador': '#FF4500',
+            'tijeras': '#4682B4',
+            'percha': '#9932CC',
+            'zapatos': '#FF1493',
+            'pincel': '#FFA500',
+            'polvo': '#DDA0DD',
+            'mesa': '#8B4513',
+            'globo': '#FF0000'
+        };
+
+        let phaseDistance = 0;
+        let nextPhaseAt = 1000;
+
+        // Controles
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                if (!gameStarted) {
+                    startGame();
+                } else if (!player.jumping && !player.ducking) {
+                    player.jumping = true;
+                    player.dy = -12;
+                }
+            }
+            if (e.code === 'ArrowDown' && !player.jumping) {
+                player.ducking = true;
+                player.height = 30;
+                player.y = 330;
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (e.code === 'ArrowDown') {
+                player.ducking = false;
+                player.height = 60;
+                player.y = 300;
+            }
+        });
+
+        function startGame() {
+            gameStarted = true;
+            startScreen.style.display = 'none';
+            gameLoop();
+        }
+
+        function spawnObstacle() {
+            if (phase >= phases.length) return;
+            
+            const availableObstacles = phaseObstacles[phase];
+            const obstacleTemplate = availableObstacles[Math.floor(Math.random() * availableObstacles.length)];
+            
+            obstacles.push({
+                x: 800,
+                y: obstacleTemplate.y,
+                width: obstacleTemplate.width,
+                height: obstacleTemplate.height,
+                type: obstacleTemplate.type,
+                high: obstacleTemplate.high
+            });
+        }
+
+        function update() {
+            if (!gameStarted) return;
+
+            // Actualizar puntuación
+            score++;
+            phaseDistance++;
+            document.getElementById('score').textContent = score;
+            
+            // Cambiar de fase
+            if (phaseDistance >= nextPhaseAt && phase < phases.length) {
+                gameSpeed *= phases[phase].difficulty;
+                phase++;
+                phaseDistance = 0;
+                nextPhaseAt *= 1.5;
+            }
+
+            // Física del jugador
+            if (player.jumping) {
+                player.y += player.dy;
+                player.dy += gravity;
+                if (player.y >= 300) {
+                    player.y = 300;
+                    player.jumping = false;
+                    player.dy = 0;
+                }
+            }
+
+            // Generar obstáculos con espaciado
+            lastObstacleTime++;
+            if (Math.random() < 0.015 * (phase + 1) && lastObstacleTime > minObstacleGap) {
+                spawnObstacle();
+                lastObstacleTime = 0;
+            }
+
+            // Mover obstáculos
+            obstacles = obstacles.filter(obs => obs.x > -obs.width);
+            obstacles.forEach(obs => {
+                obs.x -= gameSpeed;
+
+                // Colisión
+                if (player.x < obs.x + obs.width &&
+                    player.x + player.width > obs.x &&
+                    player.y < obs.y + obs.height &&
+                    player.y + player.height > obs.y) {
+                    endGame();
+                }
+            });
+        }
+
+            function draw() {
+        // Dibujar el fondo
+        ctx.drawImage(backgroundImage, 0, 0, canvas.width, canvas.height);
+
+        // Suelo (puedes mantenerlo o modificarlo según tu gusto)
+        ctx.fillStyle = '#666';
+        ctx.fillRect(0, 360, canvas.width, 40);
+
+        // Jugadora (rectángulo rosa - aquí eventualmente dibujarás el sprite)
+        ctx.fillStyle = '#FF69B4';
+        ctx.fillRect(player.x, player.y, player.width, player.height);
+
+        // Obstáculos (rectángulos de color - aquí eventualmente dibujarás los sprites)
+        obstacles.forEach(obs => {
+            ctx.fillStyle = obstacleColors?.[obs.type] || '#000';
+            ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+        });
+
+        // Texto de fase (si decides mantenerlo)
+        ctx.fillStyle = '#000';
+        ctx.font = '20px Arial';
+        ctx.fillText(`Fase: ${phases?.[Math.min(phase, phases.length - 1)]?.name || 'Desconocida'}`, 10, 30);
+    }
+
+        function endGame() {
+            gameStarted = false;
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('highScore', highScore);
+            }
+            document.getElementById('highScore').textContent = highScore;
+            startScreen.style.display = 'flex';
+            startScreen.innerHTML = `
+                <h1>¡Fin del juego!</h1>
+                <p>Puntuación: ${score}</p>
+                <p>Mejor: ${highScore}</p>
+                <p>Presiona SPACE para reintentar</p>
+            `;
+            score = 0;
+            obstacles = [];
+            phase = 0;
+            gameSpeed = 5;
+            phaseDistance = 0;
+            nextPhaseAt = 1000;
+            lastObstacleTime = 0;
+        }
+
+        function gameLoop() {
+            if (!gameStarted) return;
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Actualizar highscore inicial
+        document.getElementById('highScore').textContent = highScore;
+    </script>
+</body>
+</html>
